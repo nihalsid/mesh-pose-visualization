@@ -1,0 +1,5 @@
+Debug/*
+x64/*
+MeshPoseVisualizer/Debug/*
+MeshPoseVisualizer/x64/*
+.vs/*

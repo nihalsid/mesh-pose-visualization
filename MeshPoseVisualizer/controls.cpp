@@ -32,6 +32,50 @@ float speed = 3.0f; // 3 units / second
 float mouseSpeed = 0.005f;
 
 
+void setProjectionMatrix(float alpha, float beta, float cx, float cy, int width, int height) {
+	float f = 100.0f;
+	float n = 0.2f;
+	ProjectionMatrix[0][0] = 2 * alpha / width;
+	ProjectionMatrix[0][1] = 0;
+	ProjectionMatrix[0][2] = 0;
+	ProjectionMatrix[0][3] = 0;
+	ProjectionMatrix[1][0] = 0;
+	ProjectionMatrix[1][1] = - 2 * beta / height;
+	ProjectionMatrix[1][2] = 0;
+	ProjectionMatrix[1][3] = 0;
+	ProjectionMatrix[2][0] = 2 * (cx / width) - 1;
+	ProjectionMatrix[2][1] = -2 * (cy / height) + 1;
+	ProjectionMatrix[2][2] = -(f + n) / (f - n);
+	ProjectionMatrix[2][3] = -1;
+	ProjectionMatrix[3][0] = 0;
+	ProjectionMatrix[3][1] = 0;
+	ProjectionMatrix[3][2] = -2 * f * n / (f - n);
+	ProjectionMatrix[3][3] = 0;
+}
+
+void setViewMatrix(float matrixEntriesRowMajor[]) {
+	glm::mat4x4 cam2WorldMatrix;
+	cam2WorldMatrix[0][0] = matrixEntriesRowMajor[0];
+	cam2WorldMatrix[1][0] = matrixEntriesRowMajor[1];
+	cam2WorldMatrix[2][0] = matrixEntriesRowMajor[2];
+	cam2WorldMatrix[3][0] = matrixEntriesRowMajor[3];
+	cam2WorldMatrix[0][1] = matrixEntriesRowMajor[4];
+	cam2WorldMatrix[1][1] = matrixEntriesRowMajor[5];
+	cam2WorldMatrix[2][1] = matrixEntriesRowMajor[6];
+	cam2WorldMatrix[3][1] = matrixEntriesRowMajor[7];
+	cam2WorldMatrix[0][2] = matrixEntriesRowMajor[8];
+	cam2WorldMatrix[1][2] = matrixEntriesRowMajor[9];
+	cam2WorldMatrix[2][2] = matrixEntriesRowMajor[10];
+	cam2WorldMatrix[3][2] = matrixEntriesRowMajor[11];
+	cam2WorldMatrix[0][3] = matrixEntriesRowMajor[12];
+	cam2WorldMatrix[1][3] = matrixEntriesRowMajor[13];
+	cam2WorldMatrix[2][3] = matrixEntriesRowMajor[14];
+	cam2WorldMatrix[3][3] = matrixEntriesRowMajor[15];
+	glm::mat4x4 world2camMatrix = glm::inverse(cam2WorldMatrix);
+	glm::mat4x4 cam(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1);
+	ViewMatrix = cam * world2camMatrix;
+	
+}
 
 void computeMatricesFromInputs() {
 

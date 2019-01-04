@@ -26,6 +26,30 @@ using namespace glm;
 
 GLFWwindow* window = nullptr;
 
+#include <algorithm> 
+#include <functional> 
+#include <cctype>
+#include <locale>
+
+// trim from start
+static inline std::string &ltrim(std::string &s) {
+	s.erase(s.begin(), std::find_if(s.begin(), s.end(),
+		std::not1(std::ptr_fun<int, int>(std::isspace))));
+	return s;
+}
+
+// trim from end
+static inline std::string &rtrim(std::string &s) {
+	s.erase(std::find_if(s.rbegin(), s.rend(),
+		std::not1(std::ptr_fun<int, int>(std::isspace))).base(), s.end());
+	return s;
+}
+
+// trim from both ends
+static inline std::string &trim(std::string &s) {
+	return ltrim(rtrim(s));
+}
+
 static std::string GetBaseDir(const std::string& filepath) {
 	if (filepath.find_last_of("/\\") != std::string::npos)
 		return filepath.substr(0, filepath.find_last_of("/\\"));
@@ -361,10 +385,32 @@ static bool LoadObjAndConvert(float bmin[3], float bmax[3], std::vector<DrawObje
 	return true;
 }
 
+void readMatrixFile(const std::string& filePath, float* arrayRef) {
+	std::ifstream infile(filePath);
+	std::string line, strtoken;
+	int arrInd = 0;
+	while (std::getline(infile, line)) {
+		if (line.length() > 0) {
+			std::stringstream linestream(line);
+			for (int i = 0; i < 4; i++) {
+				std::getline(linestream, strtoken, ' ');
+				arrayRef[arrInd++] = std::stof(ltrim(rtrim(strtoken)));
+			}
+		}
+	}
+}
 
 int main(int argc, char** argv) {
 	//std::string objFile = "D:\\nihalsid\\Label23D\\server\\static\\test\\cube.obj";
 	std::string objFile = "D:\\nihalsid\\Label23D-PreprocessingScripts\\files\\datasample_min\\mesh\\mesh.refined.obj";
+	std::string cam2WorldMatrixFile = "D:\\nihalsid\\Label23D\\server\\static\\models\\sanity_test_scene\\pose\\frame-000000.pose.txt";
+	std::string camIntrinsicsFile = "D:\\nihalsid\\Label23D\\server\\static\\models\\sanity_test_scene\\camera\\intrinsic_color.txt";
+
+	float cam2WorldRowMajor[16], camIntrinsicRowMajor[16];
+	readMatrixFile(camIntrinsicsFile, camIntrinsicRowMajor);
+	readMatrixFile(cam2WorldMatrixFile, cam2WorldRowMajor);
+	setProjectionMatrix(camIntrinsicRowMajor[0], camIntrinsicRowMajor[5], camIntrinsicRowMajor[2], camIntrinsicRowMajor[6], 960, 540);
+	setViewMatrix(cam2WorldRowMajor);
 
 	// Initialise GLFW
 	if (!glfwInit())
@@ -381,7 +427,7 @@ int main(int argc, char** argv) {
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
 	// Open a window and create its OpenGL context
-	window = glfwCreateWindow(960, 540, "Tutorial 07 - Model Loading", NULL, NULL);
+	window = glfwCreateWindow(960, 540, "MeshPoseVisualization", NULL, NULL);
 	if (window == NULL) {
 		fprintf(stderr, "Failed to open GLFW window. If you have an Intel GPU, they are not 3.3 compatible. Try the 2.1 version of the tutorials.\n");
 		getchar();
@@ -408,8 +454,8 @@ int main(int argc, char** argv) {
 	glfwPollEvents();
 	glfwSetCursorPos(window, 960 / 2, 540 / 2);
 
-	// Dark blue background
-	glClearColor(0.0f, 0.0f, 0.4f, 0.0f);
+	// null background
+	glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
 
 	// Enable depth test
 	glEnable(GL_DEPTH_TEST);
@@ -448,6 +494,7 @@ int main(int argc, char** argv) {
 	glBindBuffer(GL_ARRAY_BUFFER, uvbuffer);
 	glBufferData(GL_ARRAY_BUFFER, drawObjects[0].uvs.size() * sizeof(float), &drawObjects[0].uvs[0], GL_STATIC_DRAW);
 
+	
 	do {
 
 		// Clear the screen
@@ -457,7 +504,7 @@ int main(int argc, char** argv) {
 		glUseProgram(programID);
 
 		// Compute the MVP matrix from keyboard and mouse input
-		computeMatricesFromInputs();
+		//computeMatricesFromInputs();
 		glm::mat4 ProjectionMatrix = getProjectionMatrix();
 		glm::mat4 ViewMatrix = getViewMatrix();
 		glm::mat4 ModelMatrix = glm::mat4(1.0);

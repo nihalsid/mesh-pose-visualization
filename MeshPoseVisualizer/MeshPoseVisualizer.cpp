@@ -20,6 +20,8 @@ using namespace glm;
 #include "tiny_obj_loader.h"
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
 
 #include "shader.hpp"
 #include "controls.hpp"
@@ -28,8 +30,14 @@ GLFWwindow* window = nullptr;
 
 #include <algorithm> 
 #include <functional> 
-#include <cctype>
-#include <locale>
+#include <filesystem>
+#include <math.h>  
+
+void __inline swap(unsigned char& x, unsigned char& y) {
+	unsigned char temp = x;
+	x = y;
+	y = temp;
+}
 
 // trim from start
 static inline std::string &ltrim(std::string &s) {
@@ -83,6 +91,8 @@ typedef struct {
 	std::vector<float> uvs;
 	std::vector<float> normals;
 	std::vector<float> colors;
+	std::vector<float> faces;
+	std::vector<float> faceAreas;
 	int numTriangles;
 	size_t material_id;
 } DrawObject;
@@ -328,6 +338,10 @@ static bool LoadObjAndConvert(float bmin[3], float bmax[3], std::vector<DrawObje
 					}
 				}
 
+				int fr = (1 + f) % 256;
+				int fg = ((1 + f) / 256) % 256;
+				int fb = ((1 + f) / 256 / 256) % 256;
+
 				for (int k = 0; k < 3; k++) {
 					o.vertices.push_back(v[k][0]);
 					o.vertices.push_back(v[k][1]);
@@ -353,9 +367,30 @@ static bool LoadObjAndConvert(float bmin[3], float bmax[3], std::vector<DrawObje
 					o.colors.push_back(c[1] * 0.5 + 0.5);
 					o.colors.push_back(c[2] * 0.5 + 0.5);
 
+					o.faces.push_back(fr / 256.0);
+					o.faces.push_back(fg / 256.0);
+					o.faces.push_back(fb / 256.0);
+
 					o.uvs.push_back(tc[k][0]);
 					o.uvs.push_back(tc[k][1]);
 				}
+
+				// area of triangle 
+				// s = 0.5 * sqrt ( (x2 * y3 - x3 * y2) ^ 2  + (x3 * y1 - x1 * y3) ^ 2 + (x1 * y2 - x2 * y1)  )
+				// A = v[0], B = v[1], C = v[2]
+				// v10 = v[1] - v[0]
+				// v20 = v[2] - v[0]
+				// s = 0.5 * sqrt ( (v10[1] * v20[2] - v10[2] * v20[1]) ^ 2  + (v10[2] * v20[0] - v10[0] * v20[2]) ^ 2 + (v10[0] * v20[1] - v10[1] * v20[0]) )
+				float v10[3], v20[3];
+				v10[0] = v[1][0] - v[0][0];
+				v10[1] = v[1][1] - v[0][1];
+				v10[2] = v[1][2] - v[0][2];
+				v20[0] = v[2][0] - v[0][0];
+				v20[1] = v[2][1] - v[0][1];
+				v20[2] = v[2][2] - v[0][2];
+				;
+				float area = 0.5 * sqrt(pow((v10[1] * v20[2] - v10[2] * v20[1]), 2.f) + pow(v10[2] * v20[0] - v10[0] * v20[2], 2.f) + pow(v10[0] * v20[1] - v10[1] * v20[0], 2.f));
+				o.faceAreas.push_back(area);
 			}
 
 			o.numTriangles = 0;
@@ -398,19 +433,36 @@ void readMatrixFile(const std::string& filePath, float* arrayRef) {
 			}
 		}
 	}
+	infile.close();
+}
+std::string getBasename(std::string filename) {
+	const size_t last_slash_idx = filename.find_last_of("\\/");
+	if (std::string::npos != last_slash_idx)
+	{
+		filename.erase(0, last_slash_idx + 1);
+	}
+	const size_t period_idx = filename.find('.');
+	if (std::string::npos != period_idx)
+	{
+		filename.erase(period_idx);
+	}
+	return filename;
 }
 
 int main(int argc, char** argv) {
 	//std::string objFile = "D:\\nihalsid\\Label23D\\server\\static\\test\\cube.obj";
-	std::string objFile = "D:\\nihalsid\\Label23D-PreprocessingScripts\\files\\datasample_min\\mesh\\mesh.refined.obj";
-	std::string cam2WorldMatrixFile = "D:\\nihalsid\\Label23D\\server\\static\\models\\sanity_test_scene\\pose\\frame-000000.pose.txt";
-	std::string camIntrinsicsFile = "D:\\nihalsid\\Label23D\\server\\static\\models\\sanity_test_scene\\camera\\intrinsic_color.txt";
+	std::string rootDir = argv[1];
+	std::string objFile = rootDir + "\\mesh\\mesh.refined.obj";
+	std::vector<std::string> cam2WorldMatrixFiles; 
+	std::vector<std::string> faceMapFiles;
+	std::string faceAreasFile = rootDir + "\\face_maps\\areas.txt";
+	for (const auto & entry : std::experimental::filesystem::directory_iterator(rootDir + "\\color\\")) {
+		std::string basename = getBasename(entry.path().string());
+		cam2WorldMatrixFiles.push_back(rootDir + "\\pose\\" + basename + ".pose.txt");
+		faceMapFiles.push_back(rootDir + "\\face_maps\\" + basename + ".facemap.png");
+	}
+	std::string camIntrinsicsFile = rootDir + "\\camera\\intrinsic_color.txt";
 
-	float cam2WorldRowMajor[16], camIntrinsicRowMajor[16];
-	readMatrixFile(camIntrinsicsFile, camIntrinsicRowMajor);
-	readMatrixFile(cam2WorldMatrixFile, cam2WorldRowMajor);
-	setProjectionMatrix(camIntrinsicRowMajor[0], camIntrinsicRowMajor[5], camIntrinsicRowMajor[2], camIntrinsicRowMajor[6], 960, 540);
-	setViewMatrix(cam2WorldRowMajor);
 
 	// Initialise GLFW
 	if (!glfwInit())
@@ -465,6 +517,9 @@ int main(int argc, char** argv) {
 	// Cull triangles which normal is not towards the camera
 	glEnable(GL_CULL_FACE);
 
+	// Shade model flat for no interpolation
+	glShadeModel(GL_FLAT);
+
 	GLuint VertexArrayID;
 	glGenVertexArrays(1, &VertexArrayID);
 	glBindVertexArray(VertexArrayID);
@@ -489,13 +544,32 @@ int main(int argc, char** argv) {
 	glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
 	glBufferData(GL_ARRAY_BUFFER, drawObjects[0].vertices.size() * sizeof(float), &drawObjects[0].vertices[0], GL_STATIC_DRAW);
 
+	/*
 	GLuint uvbuffer;
 	glGenBuffers(1, &uvbuffer);
 	glBindBuffer(GL_ARRAY_BUFFER, uvbuffer);
 	glBufferData(GL_ARRAY_BUFFER, drawObjects[0].uvs.size() * sizeof(float), &drawObjects[0].uvs[0], GL_STATIC_DRAW);
+	*/
 
-	
-	do {
+	GLuint colorbuffer;
+	glGenBuffers(1, &colorbuffer);
+	glBindBuffer(GL_ARRAY_BUFFER, colorbuffer);
+	glBufferData(GL_ARRAY_BUFFER, drawObjects[0].faces.size() * sizeof(float), &drawObjects[0].faces[0], GL_STATIC_DRAW);
+
+	std::ofstream areasStream(faceAreasFile);
+	for (int i = 0; i < drawObjects[0].faceAreas.size(); i++) {
+		areasStream << drawObjects[0].faceAreas[i] << "\n";
+	}
+	areasStream.close();
+
+	float cam2WorldRowMajor[16], camIntrinsicRowMajor[16];
+	readMatrixFile(camIntrinsicsFile, camIntrinsicRowMajor);
+	setProjectionMatrix(camIntrinsicRowMajor[0], camIntrinsicRowMajor[5], camIntrinsicRowMajor[2], camIntrinsicRowMajor[6], 960, 540);
+
+	for (int i = 0; i < cam2WorldMatrixFiles.size(); i++) {
+
+		readMatrixFile(cam2WorldMatrixFiles[i], cam2WorldRowMajor);
+		setViewMatrix(cam2WorldRowMajor);
 
 		// Clear the screen
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -515,10 +589,10 @@ int main(int argc, char** argv) {
 		glUniformMatrix4fv(MatrixID, 1, GL_FALSE, &MVP[0][0]);
 
 		// Bind our texture in Texture Unit 0
-		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_2D, textures[materials[drawObjects[0].material_id].diffuse_texname]);
+		// glActiveTexture(GL_TEXTURE0);
+		// glBindTexture(GL_TEXTURE_2D, textures[materials[drawObjects[0].material_id].diffuse_texname]);
 		// Set our "myTextureSampler" sampler to use Texture Unit 0
-		glUniform1i(TextureID, 0);
+		// glUniform1i(TextureID, 0);
 
 		// 1rst attribute buffer : vertices
 		glEnableVertexAttribArray(0);
@@ -532,12 +606,12 @@ int main(int argc, char** argv) {
 			(void*)0            // array buffer offset
 		);
 
-		// 2nd attribute buffer : UVs
+		// 2nd attribute buffer : colors
 		glEnableVertexAttribArray(1);
-		glBindBuffer(GL_ARRAY_BUFFER, uvbuffer);
+		glBindBuffer(GL_ARRAY_BUFFER, colorbuffer);
 		glVertexAttribPointer(
 			1,                                // attribute
-			2,                                // size
+			3,                                // size
 			GL_FLOAT,                         // type
 			GL_FALSE,                         // normalized?
 			0,                                // stride
@@ -546,6 +620,17 @@ int main(int argc, char** argv) {
 
 		// Draw the triangle !
 		glDrawArrays(GL_TRIANGLES, 0, drawObjects[0].numTriangles);
+		unsigned char* image = (unsigned char*)malloc(sizeof(unsigned char) * 960 * 540 * 3);
+		glReadPixels(0, 0, 960, 540, GL_RGB, GL_UNSIGNED_BYTE, image);
+		for (int r_idx = 0; r_idx < 540 / 2; r_idx++) {
+			for (int c_idx = 0; c_idx < 960; c_idx++) {
+				swap(image[(r_idx * 960 + c_idx) * 3 + 0], image[((540 - r_idx - 1) * 960 + c_idx) * 3 + 0]);
+				swap(image[(r_idx * 960 + c_idx) * 3 + 1], image[((540 - r_idx - 1) * 960 + c_idx) * 3 + 1]);
+				swap(image[(r_idx * 960 + c_idx) * 3 + 2], image[((540 - r_idx - 1) * 960 + c_idx) * 3 + 2]);
+			}
+		}
+		stbi_write_png(faceMapFiles[i].c_str(), 960, 540, 3, image, 960 * 3);
+		free(image);
 
 		glDisableVertexAttribArray(0);
 		glDisableVertexAttribArray(1);
@@ -553,14 +638,10 @@ int main(int argc, char** argv) {
 		// Swap buffers
 		glfwSwapBuffers(window);
 		glfwPollEvents();
-
-	} // Check if the ESC key was pressed or the window was closed
-	while (glfwGetKey(window, GLFW_KEY_ESCAPE) != GLFW_PRESS &&
-		glfwWindowShouldClose(window) == 0);
-
+	} 
 	// Cleanup VBO and shader
 	glDeleteBuffers(1, &vertexbuffer);
-	glDeleteBuffers(1, &uvbuffer);
+	glDeleteBuffers(1, &colorbuffer);
 	glDeleteProgram(programID);
 	glDeleteTextures(1, &textures[materials[drawObjects[0].material_id].name]);
 	glDeleteVertexArrays(1, &VertexArrayID);

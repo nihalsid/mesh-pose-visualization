@@ -452,6 +452,9 @@ std::string getBasename(std::string filename) {
 int main(int argc, char** argv) {
 	//std::string objFile = "D:\\nihalsid\\Label23D\\server\\static\\test\\cube.obj";
 	std::string rootDir = argv[1];
+	std::string shaderDir = argv[2];
+	std::string vShader = shaderDir + "\\TransformVertexShader.vertexshader";
+	std::string fShader = shaderDir + "\\TextureFragmentShader.fragmentshader";
 	std::string objFile = rootDir + "\\mesh\\mesh.refined.obj";
 	std::vector<std::string> cam2WorldMatrixFiles; 
 	std::vector<std::string> faceMapFiles;
@@ -477,6 +480,8 @@ int main(int argc, char** argv) {
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
 	glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE); // To make MacOS happy; should not be needed
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+	glfwWindowHint(GLFW_VISIBLE, 0);
+	assert(glGetError() == GL_NO_ERROR);
 
 	// Open a window and create its OpenGL context
 	window = glfwCreateWindow(960, 540, "MeshPoseVisualization", NULL, NULL);
@@ -506,6 +511,46 @@ int main(int argc, char** argv) {
 	glfwPollEvents();
 	glfwSetCursorPos(window, 960 / 2, 540 / 2);
 
+	// The framebuffer, which regroups 0, 1, or more textures, and 0 or 1 depth buffer.
+	GLuint FramebufferName = 0;
+	glGenFramebuffers(1, &FramebufferName);
+	glBindFramebuffer(GL_FRAMEBUFFER, FramebufferName);
+	assert(glGetError() == GL_NO_ERROR);
+	// The texture we're going to render to
+	GLuint renderedTexture;
+	glGenTextures(1, &renderedTexture);
+
+	// "Bind" the newly created texture : all future texture functions will modify this texture
+	glBindTexture(GL_TEXTURE_2D, renderedTexture);
+
+	// Give an empty image to OpenGL ( the last "0" )
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 960, 540, 0, GL_RGB, GL_UNSIGNED_BYTE, 0);
+
+	// Poor filtering. Needed !
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+
+	// The depth buffer
+	GLuint depthrenderbuffer;
+	glGenRenderbuffers(1, &depthrenderbuffer);
+	glBindRenderbuffer(GL_RENDERBUFFER, depthrenderbuffer);
+	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, 960, 540);
+	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depthrenderbuffer);
+	assert(glGetError() == GL_NO_ERROR);
+	// Set "renderedTexture" as our colour attachement #0
+	glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, renderedTexture, 0);
+
+	// Set the list of draw buffers.
+	GLenum DrawBuffers[1] = { GL_COLOR_ATTACHMENT0 };
+	glDrawBuffers(1, DrawBuffers); // "1" is the size of DrawBuffers
+	
+	// Always check that our framebuffer is ok
+	if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+		return false;
+	
+	glBindFramebuffer(GL_FRAMEBUFFER, FramebufferName);
+	glViewport(0, 0, 960, 540); // Render on the whole framebuffer, complete from the lower left corner to the upper right
+	assert(glGetError() == GL_NO_ERROR);
 	// null background
 	glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
 
@@ -525,7 +570,7 @@ int main(int argc, char** argv) {
 	glBindVertexArray(VertexArrayID);
 
 	// Create and compile our GLSL program from the shaders
-	GLuint programID = LoadShaders("TransformVertexShader.vertexshader", "TextureFragmentShader.fragmentshader");
+	GLuint programID = LoadShaders(vShader.c_str(), fShader.c_str());
 
 	// Get a handle for our "MVP" uniform
 	GLuint MatrixID = glGetUniformLocation(programID, "MVP");
@@ -543,7 +588,7 @@ int main(int argc, char** argv) {
 	glGenBuffers(1, &vertexbuffer);
 	glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
 	glBufferData(GL_ARRAY_BUFFER, drawObjects[0].vertices.size() * sizeof(float), &drawObjects[0].vertices[0], GL_STATIC_DRAW);
-
+	assert(glGetError() == GL_NO_ERROR);
 	/*
 	GLuint uvbuffer;
 	glGenBuffers(1, &uvbuffer);
@@ -573,7 +618,7 @@ int main(int argc, char** argv) {
 
 		// Clear the screen
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
+		assert(glGetError() == GL_NO_ERROR);
 		// Use our shader
 		glUseProgram(programID);
 
@@ -594,7 +639,7 @@ int main(int argc, char** argv) {
 		// Set our "myTextureSampler" sampler to use Texture Unit 0
 		// glUniform1i(TextureID, 0);
 
-		// 1rst attribute buffer : vertices
+		// first attribute buffer : vertices
 		glEnableVertexAttribArray(0);
 		glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
 		glVertexAttribPointer(
@@ -605,7 +650,7 @@ int main(int argc, char** argv) {
 			0,                  // stride
 			(void*)0            // array buffer offset
 		);
-
+		assert(glGetError() == GL_NO_ERROR);
 		// 2nd attribute buffer : colors
 		glEnableVertexAttribArray(1);
 		glBindBuffer(GL_ARRAY_BUFFER, colorbuffer);
@@ -620,8 +665,10 @@ int main(int argc, char** argv) {
 
 		// Draw the triangle !
 		glDrawArrays(GL_TRIANGLES, 0, drawObjects[0].numTriangles);
+		assert(glGetError() == GL_NO_ERROR);
 		unsigned char* image = (unsigned char*)malloc(sizeof(unsigned char) * 960 * 540 * 3);
-		glReadPixels(0, 0, 960, 540, GL_RGB, GL_UNSIGNED_BYTE, image);
+		//glReadPixels(0, 0, 960, 540, GL_RGB, GL_UNSIGNED_BYTE, image);
+		glGetTextureImage(renderedTexture, 0, GL_RGB, GL_UNSIGNED_BYTE, sizeof(unsigned char) * 960 * 540 * 3, image);
 		for (int r_idx = 0; r_idx < 540 / 2; r_idx++) {
 			for (int c_idx = 0; c_idx < 960; c_idx++) {
 				swap(image[(r_idx * 960 + c_idx) * 3 + 0], image[((540 - r_idx - 1) * 960 + c_idx) * 3 + 0]);
@@ -634,7 +681,7 @@ int main(int argc, char** argv) {
 
 		glDisableVertexAttribArray(0);
 		glDisableVertexAttribArray(1);
-
+		assert(glGetError() == GL_NO_ERROR);
 		// Swap buffers
 		glfwSwapBuffers(window);
 		glfwPollEvents();
@@ -645,6 +692,6 @@ int main(int argc, char** argv) {
 	glDeleteProgram(programID);
 	glDeleteTextures(1, &textures[materials[drawObjects[0].material_id].name]);
 	glDeleteVertexArrays(1, &VertexArrayID);
-
+	assert(glGetError() == GL_NO_ERROR);
 }
 

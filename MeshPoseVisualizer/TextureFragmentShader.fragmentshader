@@ -4,7 +4,7 @@
 in vec3 color;
 
 // Ouput data
-out vec3 fragColor;
+layout(location = 0) out vec3 fragColor;
 
 // Values that stay constant for the whole mesh.
 // uniform sampler2D myTextureSampler;
